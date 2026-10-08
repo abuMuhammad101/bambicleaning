@@ -986,7 +986,7 @@
     (() => {
       // Smooth scroll (Lenis); skipped for reduced-motion users or if the CDN fails
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      const lenis = (!reduceMotion && window.Lenis) ? new Lenis({ duration: 1.15, easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)), smoothWheel: true }) : null;
+      const lenis = (!reduceMotion && window.Lenis) ? new Lenis({ duration: 1.4, easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)), smoothWheel: true }) : null;
       if (lenis) {
         const raf = (time) => { lenis.raf(time); requestAnimationFrame(raf); };
         requestAnimationFrame(raf);
