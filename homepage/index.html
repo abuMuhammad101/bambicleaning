@@ -42,7 +42,11 @@
     }
 
     *, *::before, *::after { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
+    /* Lenis smooth scroll (native smooth-scroll stays off so they don't fight) */
+    html.lenis, html.lenis body { height: auto; }
+    .lenis.lenis-smooth { scroll-behavior: auto !important; }
+    .lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+    .lenis.lenis-stopped { overflow: hidden; }
     body {
       margin: 0;
       font-family: var(--sans);
@@ -166,7 +170,7 @@
       background: radial-gradient(circle at 50% 50%, transparent 58%, rgba(255,255,255,.65) 70%, transparent 74%);
     }
     @keyframes float { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(0, -14px, 0); } }
-    @media (prefers-reduced-motion: reduce) { .bubble { animation: none; } html { scroll-behavior: auto; } }
+    @media (prefers-reduced-motion: reduce) { .bubble { animation: none; } }
 
     /* ───────── Hero ───────── */
     .hero { position: relative; overflow: hidden; padding: clamp(56px, 8vw, 104px) 0 0; text-align: center; }
@@ -492,7 +496,7 @@
     </div>
   </header>
 
-  <div class="mobile-menu" id="mobile-menu" role="dialog" aria-modal="true" aria-label="Menu">
+  <div class="mobile-menu" id="mobile-menu" data-lenis-prevent role="dialog" aria-modal="true" aria-label="Menu">
     <div class="top">
       <img src="assets/logo-horizontal.svg" alt="Bambi Cleaning" height="34" style="height:34px;width:auto" />
       <button class="menu-btn" style="display:inline-flex" aria-label="Close menu" data-close>
@@ -977,8 +981,31 @@
     </div>
   </footer>
 
+  <script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
   <script>
     (() => {
+      // Smooth scroll (Lenis); skipped for reduced-motion users or if the CDN fails
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const lenis = (!reduceMotion && window.Lenis) ? new Lenis({ duration: 1.15, easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)), smoothWheel: true }) : null;
+      if (lenis) {
+        const raf = (time) => { lenis.raf(time); requestAnimationFrame(raf); };
+        requestAnimationFrame(raf);
+      }
+      const headerOffset = () => -(document.querySelector('.header').offsetHeight + 8);
+      document.querySelectorAll('a[href^="#"]').forEach((a) => {
+        a.addEventListener('click', (e) => {
+          const id = a.getAttribute('href');
+          const target = id === '#top' ? 0 : document.querySelector(id);
+          if (target === null) return;
+          e.preventDefault();
+          // Defer so a mobile-menu close (which restarts Lenis) runs first
+          setTimeout(() => {
+          if (lenis) lenis.scrollTo(target, { offset: target === 0 ? 0 : headerOffset() });
+          else window.scrollTo({ top: target === 0 ? 0 : target.getBoundingClientRect().top + window.scrollY + headerOffset() });
+          }, 0);
+        });
+      });
+
       // Header border on scroll
       const header = document.querySelector('.header');
       const onScroll = () => header.classList.toggle('scrolled', window.scrollY > 8);
@@ -992,6 +1019,7 @@
         menu.classList.toggle('open', open);
         openBtn.setAttribute('aria-expanded', String(open));
         document.body.style.overflow = open ? 'hidden' : '';
+        if (lenis) open ? lenis.stop() : lenis.start();
         if (open) menu.querySelector('[data-close]').focus(); else openBtn.focus();
       };
       openBtn.addEventListener('click', () => setMenu(true));
