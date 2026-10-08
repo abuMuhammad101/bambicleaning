@@ -420,10 +420,8 @@
     .footer-bottom a:hover { color: var(--ink); }
 
     /* ───────── Reveal ───────── */
-    /* Content is visible at rest; JS adds a gentle rise for elements that start below the fold. */
-    .reveal.pending { transform: translateY(16px); }
-    .reveal { transition: transform .7s cubic-bezier(.2,.7,.2,1); }
-    @media (prefers-reduced-motion: reduce) { .reveal, .reveal.pending { transform: none; transition: none; } }
+    /* GSAP hooks: elements animate from transforms; layout never depends on JS */
+    .tile, .closing-card, .story { will-change: transform; }
 
     /* ───────── Responsive ───────── */
     @media (max-width: 1080px) {
@@ -737,10 +735,10 @@
           <h2 class="h2" id="facts-title">Know the price <span class="serif">before we knock</span></h2>
         </div>
         <div class="facts">
-          <div class="fact reveal"><b>$150</b><p>Typical one-time clean for a 3-bed, 2-bath home</p></div>
-          <div class="fact reveal"><b>20<small>%</small></b><p>Deposit to confirm. The rest is due after the clean</p></div>
-          <div class="fact reveal"><b>24<small>h</small></b><p>Cancel up to a day ahead with no fee</p></div>
-          <div class="fact reveal"><b>13</b><p>Add-ons to tailor every visit</p></div>
+          <div class="fact reveal"><b>$<span class="count" data-to="150">150</span></b><p>Typical one-time clean for a 3-bed, 2-bath home</p></div>
+          <div class="fact reveal"><b><span class="count" data-to="20">20</span><small>%</small></b><p>Deposit to confirm. The rest is due after the clean</p></div>
+          <div class="fact reveal"><b><span class="count" data-to="24">24</span><small>h</small></b><p>Cancel up to a day ahead with no fee</p></div>
+          <div class="fact reveal"><b><span class="count" data-to="13">13</span></b><p>Add-ons to tailor every visit</p></div>
         </div>
       </div>
     </section>
@@ -982,12 +980,21 @@
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/lenis@1.1.13/dist/lenis.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
   <script>
     (() => {
       // Smooth scroll (Lenis); skipped for reduced-motion users or if the CDN fails
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const lenis = (!reduceMotion && window.Lenis) ? new Lenis({ duration: 1.4, easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)), smoothWheel: true }) : null;
-      if (lenis) {
+      const hasGsap = !!(window.gsap && window.ScrollTrigger);
+      if (hasGsap) gsap.registerPlugin(ScrollTrigger);
+      if (lenis && hasGsap) {
+        // One clock: GSAP's ticker drives Lenis, Lenis tells ScrollTrigger when it scrolls
+        lenis.on('scroll', ScrollTrigger.update);
+        gsap.ticker.add((time) => lenis.raf(time * 1000));
+        gsap.ticker.lagSmoothing(0);
+      } else if (lenis) {
         const raf = (time) => { lenis.raf(time); requestAnimationFrame(raf); };
         requestAnimationFrame(raf);
       }
@@ -1064,17 +1071,110 @@
         });
       });
 
-      // Reveal on scroll
-      const io = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
-        entries.forEach((en) => { if (en.isIntersecting) { en.target.classList.remove('pending'); io.unobserve(en.target); } });
-      }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 }) : null;
-      const motionOK = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      document.querySelectorAll('.reveal').forEach((el, i) => {
-        if (!io || !motionOK || el.getBoundingClientRect().top < window.innerHeight) return;
-        el.style.transitionDelay = (i % 4) * 70 + 'ms';
-        el.classList.add('pending');
-        io.observe(el);
-      });
+      // ───────── GSAP scroll animations ─────────
+      if (hasGsap && !reduceMotion) {
+        const ease = 'power3.out';
+        const q = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+        // Reveal a group when its trigger enters the lower part of the viewport
+        const rise = (targets, trigger, vars = {}) => {
+          if (!targets.length) return;
+          gsap.from(targets, {
+            y: 40, autoAlpha: 0, duration: 1, ease, stagger: 0.08, ...vars,
+            scrollTrigger: { trigger, start: 'top 85%', once: true },
+          });
+        };
+
+        // Hero: short load sequence, then parallax
+        const heroTl = gsap.timeline({ defaults: { ease, duration: 1 } });
+        heroTl
+          .from('.hero .eyebrow', { y: 16, autoAlpha: 0, duration: .7 })
+          .from('#hero-title', { y: 40, autoAlpha: 0 }, '-=.45')
+          .from('#hero-title .serif', { y: 20, autoAlpha: 0, duration: .9 }, '-=.7')
+          .from(['.hero .lede', '.quote-bar', '.qb-note', '.suggest'], { y: 24, autoAlpha: 0, stagger: .08 }, '-=.6')
+          .from('.hero-media figure', { y: 80, autoAlpha: 0, stagger: .1, duration: 1.2 }, '-=.7')
+          .from('.hero-media .float-card', { y: 12, scale: .92, autoAlpha: 0, stagger: .12, duration: .6, ease: 'back.out(1.6)' }, '-=.5');
+        gsap.from('.hero .bubble', { scale: .4, autoAlpha: 0, duration: 1.4, stagger: .12, ease: 'expo.out', delay: .2 });
+        q('.hero .bubble').forEach((b, i) => {
+          gsap.to(b, { yPercent: -60 - i * 25, ease: 'none', scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: true } });
+        });
+        gsap.to('.hero-media .m-main img', { yPercent: 10, scale: 1.08, ease: 'none', scrollTrigger: { trigger: '.hero-media', start: 'top 80%', end: 'bottom top', scrub: true } });
+        q('.hero-media .m-side').forEach((f, i) => {
+          gsap.to(f, { y: i ? -40 : -24, ease: 'none', scrollTrigger: { trigger: '.hero-media', start: 'top bottom', end: 'bottom top', scrub: true } });
+        });
+
+        // Trust row
+        rise(q('.trust-item'), '.trust', { stagger: .1 });
+
+        // Section heads (heading, then its italic phrase, then the side copy)
+        q('.head').forEach((head) => {
+          const tl = gsap.timeline({ scrollTrigger: { trigger: head, start: 'top 85%', once: true }, defaults: { ease } });
+          // Only tween parts this head actually has (avoids GSAP "target not found" warnings)
+          const add = (targets, vars, pos) => { if (targets && (targets.length === undefined || targets.length)) tl.from(targets, vars, pos); };
+          add(head.querySelector('.eyebrow'), { y: 14, autoAlpha: 0, duration: .6 });
+          add(head.querySelector('.h2'), { y: 50, autoAlpha: 0, duration: 1.1 }, '<.05');
+          add(head.querySelector('.h2 .serif'), { x: -14, autoAlpha: 0, duration: 1 }, '<.25');
+          add(head.querySelectorAll('.lede, .btn, .rating'), { y: 20, autoAlpha: 0, duration: .8 }, '<.1');
+        });
+
+        // How it works: stages rise, UI cards settle, details tick in
+        q('.step').forEach((step, i) => {
+          const tl = gsap.timeline({ scrollTrigger: { trigger: '.steps', start: 'top 80%', once: true }, delay: i * .15, defaults: { ease } });
+          tl.from(step.querySelector('.step-stage'), { y: 50, autoAlpha: 0, duration: 1 })
+            .from(step.querySelector('.ui-card'), { y: 30, rotate: i % 2 ? 3 : -3, scale: .94, autoAlpha: 0, duration: 1, ease: 'expo.out' }, '-=.6')
+            .from(step.querySelectorAll('.ui-row, .ui-check, .ui-cal .d, .ui-times span'), { y: 8, autoAlpha: 0, stagger: .025, duration: .4 }, '-=.6')
+            .from(step.querySelectorAll('h3, p'), { y: 16, autoAlpha: 0, stagger: .08, duration: .7 }, '-=.8');
+        });
+
+        // Services bento: clip-path wipe + image settle
+        q('.tile').forEach((tile, i) => {
+          const tl = gsap.timeline({ scrollTrigger: { trigger: tile, start: 'top 90%', once: true }, delay: (i % 3) * .08 });
+          tl.from(tile, { clipPath: 'inset(18% 6% 0% 6% round 20px)', y: 40, autoAlpha: 0, duration: 1.2, ease: 'expo.out' })
+            .from(tile.querySelector('img'), { scale: 1.25, duration: 1.6, ease: 'expo.out' }, 0)
+            .from(tile.querySelectorAll('.top, h3, p'), { y: 16, autoAlpha: 0, stagger: .06, duration: .7, ease }, .35);
+        });
+
+        // Facts: tiles rise, numbers count up
+        rise(q('.fact'), '.facts', { stagger: .1 });
+        q('.fact .count').forEach((el) => {
+          const to = Number(el.dataset.to);
+          const obj = { v: 0 };
+          gsap.to(obj, {
+            v: to, duration: 1.6, ease: 'power2.out',
+            scrollTrigger: { trigger: el, start: 'top 90%', once: true },
+            onUpdate: () => { el.textContent = Math.round(obj.v); },
+          });
+        });
+
+        // Reviews: cards rise in column order
+        rise(q('.review'), '.reviews', { y: 60, stagger: .1 });
+
+        // Story: card scales up, photo parallax inside
+        gsap.from('.story', { y: 60, scale: .96, autoAlpha: 0, duration: 1.2, ease, scrollTrigger: { trigger: '.story', start: 'top 85%', once: true } });
+        gsap.fromTo('.story-media img', { yPercent: -8, scale: 1.15 }, { yPercent: 8, scale: 1.15, ease: 'none', scrollTrigger: { trigger: '.story', start: 'top bottom', end: 'bottom top', scrub: true } });
+        rise(q('.story-copy .h2, .story-copy p, .story-list li, .story-media .float-card'), '.story', { y: 24, stagger: .07, delay: .25 });
+
+        // Areas: copy, chips cascade, pins drop onto the map
+        rise(q('#areas .eyebrow, #areas .h2, #areas .lede'), '#areas', { stagger: .08 });
+        rise(q('.area-chips .chip'), '.area-chips', { y: 14, scale: .9, duration: .6, stagger: .04, ease: 'back.out(1.7)' });
+        gsap.from('.area-card', { y: 40, autoAlpha: 0, duration: 1, ease, scrollTrigger: { trigger: '.area-card', start: 'top 85%', once: true } });
+        gsap.from('.pin', { y: -26, autoAlpha: 0, duration: .7, stagger: .07, ease: 'bounce.out', scrollTrigger: { trigger: '.area-card', start: 'top 70%', once: true } });
+
+        // FAQ
+        rise(q('.faq-side > *'), '.faq', { stagger: .08 });
+        rise(q('.faq-list details'), '.faq-list', { y: 24, stagger: .06 });
+
+        // Closing: card unmasks from the centre, photo zooms out with scroll
+        gsap.from('.closing-card', { clipPath: 'inset(12% 10% 12% 10% round 40px)', duration: 1.4, ease: 'expo.out', scrollTrigger: { trigger: '.closing-card', start: 'top 85%', once: true } });
+        gsap.fromTo('.closing-card > img', { scale: 1.25 }, { scale: 1, ease: 'none', scrollTrigger: { trigger: '.closing-card', start: 'top bottom', end: 'bottom bottom', scrub: true } });
+        rise(q('.closing-card .h2, .closing-foot > *'), '.closing-card', { y: 30, stagger: .1, delay: .3 });
+
+        // Footer
+        rise(q('.footer-grid > *'), '.footer', { y: 24, stagger: .08 });
+
+        // Recalculate once fonts and images have settled
+        window.addEventListener('load', () => ScrollTrigger.refresh());
+        if (document.fonts) document.fonts.ready.then(() => ScrollTrigger.refresh());
+      }
 
       document.getElementById('year').textContent = new Date().getFullYear();
     })();
